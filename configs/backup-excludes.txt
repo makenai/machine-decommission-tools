@@ -1,0 +1,144 @@
+# Default backup exclusion patterns
+# This file is used as a template for ~/.backup-excludes
+
+# Caches and temporary files
+.cache/**
+Cache/**
+Caches/**
+.npm/**
+.docker/**
+.Trash/**
+node_modules/**
+.wine/**
+.minikube/**
+.kube/**
+.gradle/**
+.m2/**
+.expo/**
+.nvm/**
+.turtle/**
+.node-gyp/**
+.cargo/**
+.local/share/Trash/**
+.local/share/baloo/**
+.vscode/**
+.vscode-insiders/**
+venv/**
+.venv/**
+**/venv/**
+**/.venv/**
+
+# Library stuff (macOS)
+Library/Caches/**
+Library/Developer/**
+Library/Containers/**
+Library/Application Support/Steam/**
+Library/Application Support/Spotify/**
+Library/CloudStorage/**
+Library/Application Support/Google/Chrome/**
+Library/Application Support/Firefox/**
+Library/Logs/**
+Library/WebKit/**
+Library/Safari/**
+
+# Library stuff (Linux)
+.mozilla/firefox/*/Cache/**
+.config/google-chrome/*/Cache/**
+.config/chromium/*/Cache/**
+.steam/**
+.local/share/Steam/**
+
+# Build artifacts
+**/dist/**
+**/build/**
+**/target/**
+**/.next/**
+**/out/**
+**/__pycache__/**
+**/*.pyc
+**/.pytest_cache/**
+.elixir_ls/**
+**/_build/**
+**/deps/**
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+*.log
+**/*.log
+.Spotlight-V100
+.Trashes
+.fseventsd
+.DocumentRevisions-V100
+.TemporaryItems
+
+# Large files
+*.sql
+*.sql.gz
+*.iso
+*.dmg
+*.img
+*.vmdk
+*.vdi
+*.box
+*.ova
+masked_sql/**
+
+# History files
+.zsh_history
+.bash_history
+.python_history
+.node_repl_history
+.viminfo
+.lesshst
+.mysql_history
+.psql_history
+.sqlite_history
+
+# Version control
+**/.git/objects/**
+**/.git/lfs/**
+**/.svn/**
+**/.hg/**
+
+# Package managers
+.rbenv/**
+.pyenv/**
+.jenv/**
+.sdkman/**
+.rustup/**
+.composer/cache/**
+
+# IDE specific
+.idea/**
+*.iml
+.eclipse/**
+.netbeans/**
+
+# Virtual machines
+VirtualBox VMs/**
+.vagrant/**
+.vagrant.d/**
+
+# Backup files
+*.bak
+*.backup
+*~
+*.swp
+*.swo
+
+# Script-created files (don't backup our own files)
+.last-backup-config
+.backup-excludes
+
+# Other
+.claude.json*
+.zcompdump*
+.android/**
+.gradle/**
+.wine/**
+.Xauthority
+.ICEauthority
