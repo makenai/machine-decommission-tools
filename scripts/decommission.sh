@@ -366,7 +366,7 @@ create_excludes_file() {
     local excludes_file="$HOME/.backup-excludes"
     
     if [[ ! -f "$excludes_file" ]]; then
-        echo -e "${YELLOW}Creating backup excludes file...${NC}"
+        echo -e "${YELLOW}Creating backup excludes file...${NC}" >&2
         cat > "$excludes_file" << 'EOF'
 # Caches and temporary files
 .cache/**
@@ -510,9 +510,9 @@ machine-info-*.json
 .Xauthority
 .ICEauthority
 EOF
-        echo -e "${GREEN}✓ Created excludes file${NC}"
+        echo -e "${GREEN}✓ Created excludes file${NC}" >&2
     else
-        echo -e "${GREEN}✓ Using existing excludes file${NC}"
+        echo -e "${GREEN}✓ Using existing excludes file${NC}" >&2
     fi
     
     echo "$excludes_file"
@@ -723,6 +723,12 @@ backup_user() {
     local start_time=$(date +%s)
     local log_file="/tmp/backup-${username}-$(date +%Y%m%d-%H%M%S).log"
     
+    # Debug: Check excludes file
+    if [[ ! -f "$EXCLUDES_FILE" ]]; then
+        echo -e "${RED}Error: Excludes file not found: $EXCLUDES_FILE${NC}"
+        return 1
+    fi
+    
     # Run the backup
     $sudo_prefix rclone sync "$home_dir" "$destination_path" \
         --exclude-from "$EXCLUDES_FILE" \
@@ -916,6 +922,13 @@ main() {
     
     # Create excludes file once for all backups
     EXCLUDES_FILE=$(create_excludes_file)
+    
+    # Verify excludes file was created
+    if [[ ! -f "$EXCLUDES_FILE" ]]; then
+        echo -e "${RED}Error: Failed to create excludes file${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Using excludes file: $EXCLUDES_FILE${NC}"
     
     # Check admin privileges and offer multi-user backup
     if check_admin_privileges; then
