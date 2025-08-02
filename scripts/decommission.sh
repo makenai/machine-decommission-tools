@@ -23,6 +23,7 @@ SELECTED_USERS=()
 BACKUP_SUBFOLDER=""
 IS_ADMIN=false
 MACHINE_INFO_FILE=""
+EXCLUDES_FILE=""
 
 echo -e "${BLUE}=== Machine Decommission Tool ===${NC}"
 echo -e "${YELLOW}This tool will capture machine info and backup user data before decommissioning${NC}\n"
@@ -238,12 +239,13 @@ list_system_users() {
             if [[ $uid -ge $min_uid && -d "$home_dir" && "$home_dir" != "/var/empty" ]]; then
                 users+=("$username|$home_dir")
             fi
-        done < <(dscl . -readall /Users | awk '
-            /^RecordName:/ {name=$2}
-            /^UniqueID:/ {uid=$2}
-            /^NFSHomeDirectory:/ {home=$2; if (uid >= 501 && home != "/var/empty") print name":"uid":"home}
-        ' | while IFS=: read -r name uid home; do
-            echo "$name:x:$uid:x:x:$home:x"
+        done < <(dscl . -list /Users NFSHomeDirectory | while read username homedir; do
+            if [[ "$homedir" != "/var/empty" && -d "$homedir" ]]; then
+                local uid=$(dscl . -read /Users/"$username" UniqueID 2>/dev/null | awk '{print $2}')
+                if [[ -n "$uid" && $uid -ge $min_uid ]]; then
+                    echo "$username:x:$uid:x:x:$homedir:x"
+                fi
+            fi
         done)
     else
         # Linux
@@ -359,19 +361,12 @@ setup_backup_subfolder() {
     fi
 }
 
-# Function to create excludes file for a specific user
-create_user_excludes_file() {
-    local username="$1"
-    local home_dir="$2"
-    local excludes_file="$home_dir/.backup-excludes"
+# Function to create excludes file
+create_excludes_file() {
+    local excludes_file="$HOME/.backup-excludes"
     
-    # If running as admin and backing up other users, create in temp location
-    if [[ "$IS_ADMIN" == true && "$username" != "$(whoami)" ]]; then
-        excludes_file="/tmp/.backup-excludes-$username"
-    fi
-    
-    if [[ ! -f "$excludes_file" ]] || [[ "$excludes_file" == /tmp/* ]]; then
-        echo -e "${YELLOW}Creating backup excludes file for $username...${NC}"
+    if [[ ! -f "$excludes_file" ]]; then
+        echo -e "${YELLOW}Creating backup excludes file...${NC}"
         cat > "$excludes_file" << 'EOF'
 # Caches and temporary files
 .cache/**
@@ -515,9 +510,9 @@ machine-info-*.json
 .Xauthority
 .ICEauthority
 EOF
-        echo -e "${GREEN}✓ Created excludes file: $excludes_file${NC}"
+        echo -e "${GREEN}✓ Created excludes file${NC}"
     else
-        echo -e "${GREEN}✓ Using existing excludes file: $excludes_file${NC}"
+        echo -e "${GREEN}✓ Using existing excludes file${NC}"
     fi
     
     echo "$excludes_file"
@@ -556,7 +551,12 @@ setup_b2_credentials() {
 # Function to get bucket configuration
 setup_bucket_config() {
     if [[ -z "${B2_BUCKET_NAME:-}" ]]; then
-        read_input "Enter your B2 bucket name: " B2_BUCKET_NAME
+        while [[ -z "$B2_BUCKET_NAME" ]]; do
+            read_input "Enter your B2 bucket name: " B2_BUCKET_NAME
+            if [[ -z "$B2_BUCKET_NAME" ]]; then
+                echo -e "${RED}Bucket name cannot be empty${NC}"
+            fi
+        done
         export B2_BUCKET_NAME
     else
         echo -e "${GREEN}✓ Using bucket: $B2_BUCKET_NAME${NC}"
@@ -597,17 +597,19 @@ check_dependencies() {
 
 # Function to configure rclone
 configure_rclone() {
-    # Check if remote already exists
-    if rclone listremotes 2>/dev/null | grep -q "^${B2_REMOTE_NAME}:$"; then
-        echo -e "${GREEN}✓ Remote '$B2_REMOTE_NAME' already configured${NC}"
-    else
-        echo -e "${YELLOW}Configuring rclone remote...${NC}"
-        # Create rclone config programmatically
-        rclone config create "$B2_REMOTE_NAME" b2 \
-            account "$B2_APPLICATION_KEY_ID" \
-            key "$B2_APPLICATION_KEY" \
-            hard_delete true
-        echo -e "${GREEN}✓ Created remote '$B2_REMOTE_NAME'${NC}"
+    # Create new remote if needed and not using existing
+    if [[ "$SKIP_CREDENTIALS" != "true" ]]; then
+        if rclone listremotes 2>/dev/null | grep -q "^${B2_REMOTE_NAME}:$"; then
+            echo -e "${GREEN}✓ Remote '$B2_REMOTE_NAME' already configured${NC}"
+        else
+            echo -e "${YELLOW}Configuring rclone remote...${NC}"
+            # Create rclone config programmatically
+            rclone config create "$B2_REMOTE_NAME" b2 \
+                account "$B2_APPLICATION_KEY_ID" \
+                key "$B2_APPLICATION_KEY" \
+                hard_delete true
+            echo -e "${GREEN}✓ Created remote '$B2_REMOTE_NAME'${NC}"
+        fi
     fi
     
     # Test the connection
@@ -635,7 +637,6 @@ configure_rclone() {
 estimate_user_size() {
     local username="$1"
     local home_dir="$2"
-    local excludes_file="$3"
     
     echo -e "\n${YELLOW}Estimating backup size for $username...${NC}"
     
@@ -686,7 +687,6 @@ optimize_transfer_settings() {
 backup_user() {
     local username="$1"
     local home_dir="$2"
-    local excludes_file="$3"
     local destination_path="${B2_REMOTE_NAME}:${B2_BUCKET_NAME}/"
     
     # Add subfolder if specified
@@ -702,7 +702,6 @@ backup_user() {
     echo -e "\n${BLUE}Backing up user: $username${NC}"
     echo -e "Source: $home_dir"
     echo -e "Destination: $destination_path"
-    echo -e "Excludes: $excludes_file"
     
     # Check if we have read access
     if [[ ! -r "$home_dir" ]]; then
@@ -726,7 +725,7 @@ backup_user() {
     
     # Run the backup
     $sudo_prefix rclone sync "$home_dir" "$destination_path" \
-        --exclude-from "$excludes_file" \
+        --exclude-from "$EXCLUDES_FILE" \
         --transfers "$transfers" \
         --checkers "$checkers" \
         --fast-list \
@@ -758,10 +757,6 @@ backup_user() {
         echo -e "${YELLOW}⚠ Backup completed with warnings for $username (check log: $log_file)${NC}"
     fi
     
-    # Clean up temp excludes file
-    if [[ "$excludes_file" == /tmp/* ]]; then
-        rm -f "$excludes_file"
-    fi
     
     return $exit_code
 }
@@ -788,20 +783,17 @@ run_backups() {
         echo -e "\n${YELLOW}Running dry run...${NC}"
         for user_info in "${SELECTED_USERS[@]:0:1}"; do  # Only dry run first user
             IFS='|' read -r username home_dir <<< "$user_info"
-            local excludes_file=$(create_user_excludes_file "$username" "$home_dir")
             
             local dest_path="${B2_REMOTE_NAME}:${B2_BUCKET_NAME}/"
             [[ -n "$BACKUP_SUBFOLDER" ]] && dest_path="${dest_path}${BACKUP_SUBFOLDER}/"
             [[ "$MULTI_USER_MODE" == true ]] && dest_path="${dest_path}${username}/"
             
             rclone sync "$home_dir" "$dest_path" \
-                --exclude-from "$excludes_file" \
+                --exclude-from "$EXCLUDES_FILE" \
                 --skip-links \
                 --dry-run \
                 --progress \
                 --max-depth 3  # Limit dry run depth for speed
-            
-            [[ "$excludes_file" == /tmp/* ]] && rm -f "$excludes_file"
         done
         
         echo -e "\n${YELLOW}Dry run complete. Review the output above.${NC}"
@@ -820,9 +812,8 @@ run_backups() {
     
     for user_info in "${SELECTED_USERS[@]}"; do
         IFS='|' read -r username home_dir <<< "$user_info"
-        local excludes_file=$(create_user_excludes_file "$username" "$home_dir")
         
-        if ! backup_user "$username" "$home_dir" "$excludes_file"; then
+        if ! backup_user "$username" "$home_dir"; then
             failed_users+=("$username")
         fi
     done
@@ -923,6 +914,9 @@ main() {
     # Collect machine information first
     collect_machine_info
     
+    # Create excludes file once for all backups
+    EXCLUDES_FILE=$(create_excludes_file)
+    
     # Check admin privileges and offer multi-user backup
     if check_admin_privileges; then
         echo -e "\n${YELLOW}Multi-user backup available${NC}"
@@ -939,16 +933,60 @@ main() {
     setup_backup_subfolder
     
     echo -e "\n${YELLOW}Setting up B2 configuration...${NC}"
-    setup_b2_credentials
-    setup_bucket_config
+    
+    # Initialize flags
+    SKIP_CREDENTIALS=false
+    
+    # Check for existing remotes first
+    local existing_remotes=()
+    while IFS= read -r remote; do
+        remote="${remote%:}"
+        if [[ -n "$remote" ]]; then
+            existing_remotes+=("$remote")
+        fi
+    done < <(rclone listremotes 2>/dev/null)
+    
+    if [[ ${#existing_remotes[@]} -gt 0 ]]; then
+        echo -e "\n${YELLOW}Found existing rclone remotes:${NC}"
+        echo "  n) Create new remote"
+        local i=1
+        for remote in "${existing_remotes[@]}"; do
+            local remote_type=$(rclone config show "$remote" 2>/dev/null | grep "^type = " | cut -d' ' -f3)
+            printf "  %d) %s" "$i" "$remote"
+            [[ "$remote_type" == "b2" ]] && printf " (B2)"
+            printf "\n"
+            ((i++))
+        done
+        
+        read_input "Select remote or create new [n]: " remote_choice
+        remote_choice=${remote_choice:-n}
+        
+        if [[ "$remote_choice" != "n" && "$remote_choice" != "N" ]]; then
+            local selected_index=$((remote_choice - 1))
+            if [[ $selected_index -ge 0 && $selected_index -lt ${#existing_remotes[@]} ]]; then
+                B2_REMOTE_NAME="${existing_remotes[$selected_index]}"
+                echo -e "${GREEN}✓ Using existing remote '$B2_REMOTE_NAME'${NC}"
+                SKIP_CREDENTIALS=true
+                export B2_REMOTE_NAME
+            fi
+        fi
+    fi
+    
+    # Setup credentials and bucket config if creating new remote
+    if [[ "$SKIP_CREDENTIALS" != "true" ]]; then
+        setup_b2_credentials
+        setup_bucket_config
+    else
+        # Still need bucket name even with existing remote
+        setup_bucket_config
+    fi
+    
     configure_rclone
     
     # Estimate sizes
     for user_info in "${SELECTED_USERS[@]}"; do
         IFS='|' read -r username home_dir <<< "$user_info"
-        local excludes_file=$(create_user_excludes_file "$username" "$home_dir")
-        estimate_user_size "$username" "$home_dir" "$excludes_file"
-        [[ "$excludes_file" == /tmp/* ]] && rm -f "$excludes_file"
+        estimate_user_size "$username" "$home_dir" "$EXCLUDES_FILE"
     done
     
     run_backups
