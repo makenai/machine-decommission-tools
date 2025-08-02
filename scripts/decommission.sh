@@ -2,7 +2,7 @@
 # Machine Decommission Tool
 # https://github.com/yourusername/machine-decommission-tools
 
-set -euo pipefail
+set -eo pipefail
 
 # Colors for pretty output
 RED='\033[0;31m'
@@ -12,7 +12,12 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # Global variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Handle both direct execution and curl pipe execution
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    SCRIPT_DIR="$PWD"
+fi
 MULTI_USER_MODE=false
 SELECTED_USERS=()
 BACKUP_SUBFOLDER=""
@@ -21,6 +26,39 @@ MACHINE_INFO_FILE=""
 
 echo -e "${BLUE}=== Machine Decommission Tool ===${NC}"
 echo -e "${YELLOW}This tool will capture machine info and backup user data before decommissioning${NC}\n"
+
+# Function to read input that works with piped scripts
+read_input() {
+    local prompt="$1"
+    local var_name="$2"
+    
+    if [ -t 0 ]; then
+        # Normal read when running interactively
+        read -p "$prompt" input_value
+    else
+        # Read from /dev/tty when piped
+        read -p "$prompt" input_value < /dev/tty
+    fi
+    
+    # Assign to the specified variable
+    eval "$var_name='$input_value'"
+}
+
+# Function to read secure input (passwords)
+read_secure() {
+    local prompt="$1"
+    local var_name="$2"
+    
+    if [ -t 0 ]; then
+        read -s -p "$prompt" input_value
+    else
+        read -s -p "$prompt" input_value < /dev/tty
+    fi
+    echo  # New line after password input
+    
+    # Assign to the specified variable
+    eval "$var_name='$input_value'"
+}
 
 # Function to check if running as admin/root
 check_admin_privileges() {
@@ -249,7 +287,7 @@ select_users_to_backup() {
     echo "  c) Current user only ($(whoami))"
     echo "  s) Select specific users (comma-separated numbers)"
     
-    read -p "Your choice [c]: " choice
+    read_input "Your choice [c]: " choice
     choice=${choice:-c}
     
     case "$choice" in
@@ -258,7 +296,7 @@ select_users_to_backup() {
             MULTI_USER_MODE=true
             ;;
         s|S)
-            read -p "Enter user numbers (e.g., 1,3,4): " selections
+            read_input "Enter user numbers (e.g., 1,3,4): " selections
             IFS=',' read -ra selected_indices <<< "$selections"
             for index in "${selected_indices[@]}"; do
                 index=$((index - 1))
@@ -294,7 +332,7 @@ setup_backup_subfolder() {
     echo "  4) Use date as subfolder ($(date +%Y-%m-%d))"
     echo "  5) Custom subfolder name"
     
-    read -p "Your choice [1]: " folder_choice
+    read_input "Your choice [1]: " folder_choice
     folder_choice=${folder_choice:-1}
     
     case "$folder_choice" in
@@ -308,7 +346,7 @@ setup_backup_subfolder() {
             BACKUP_SUBFOLDER="$(date +%Y-%m-%d)"
             ;;
         5)
-            read -p "Enter subfolder name: " custom_folder
+            read_input "Enter subfolder name: " custom_folder
             BACKUP_SUBFOLDER="$custom_folder"
             ;;
         *)
@@ -489,7 +527,7 @@ EOF
 setup_b2_credentials() {
     if [[ -z "${B2_APPLICATION_KEY_ID:-}" ]]; then
         echo -e "${YELLOW}B2 Application Key ID not found in environment${NC}"
-        read -p "Enter your B2 Application Key ID: " B2_APPLICATION_KEY_ID
+        read_input "Enter your B2 Application Key ID: " B2_APPLICATION_KEY_ID
         export B2_APPLICATION_KEY_ID
     else
         echo -e "${GREEN}✓ Using B2 Application Key ID from environment${NC}"
@@ -497,8 +535,7 @@ setup_b2_credentials() {
 
     if [[ -z "${B2_APPLICATION_KEY:-}" ]]; then
         echo -e "${YELLOW}B2 Application Key not found in environment${NC}"
-        read -s -p "Enter your B2 Application Key: " B2_APPLICATION_KEY
-        echo
+        read_secure "Enter your B2 Application Key: " B2_APPLICATION_KEY
         export B2_APPLICATION_KEY
     else
         echo -e "${GREEN}✓ Using B2 Application Key from environment${NC}"
@@ -519,14 +556,14 @@ setup_b2_credentials() {
 # Function to get bucket configuration
 setup_bucket_config() {
     if [[ -z "${B2_BUCKET_NAME:-}" ]]; then
-        read -p "Enter your B2 bucket name: " B2_BUCKET_NAME
+        read_input "Enter your B2 bucket name: " B2_BUCKET_NAME
         export B2_BUCKET_NAME
     else
         echo -e "${GREEN}✓ Using bucket: $B2_BUCKET_NAME${NC}"
     fi
 
     if [[ -z "${B2_REMOTE_NAME:-}" ]]; then
-        read -p "Enter a name for this backup remote [default: backup-remote]: " B2_REMOTE_NAME
+        read_input "Enter a name for this backup remote [default: backup-remote]: " B2_REMOTE_NAME
         B2_REMOTE_NAME=${B2_REMOTE_NAME:-backup-remote}
         export B2_REMOTE_NAME
     else
@@ -735,12 +772,12 @@ run_backups() {
     
     if [[ ${#SELECTED_USERS[@]} -gt 1 ]]; then
         echo -e "\n${YELLOW}You have selected ${#SELECTED_USERS[@]} users for backup${NC}"
-        read -p "Skip dry run for faster backup? [y/N]: " skip_dry
+        read_input "Skip dry run for faster backup? [y/N]: " skip_dry
         if [[ "$skip_dry" =~ ^[Yy]$ ]]; then
             dry_run_first=false
         fi
     else
-        read -p "Do you want to see a dry run first? [Y/n]: " dry_run
+        read_input "Do you want to see a dry run first? [Y/n]: " dry_run
         dry_run=${dry_run:-Y}
         if [[ ! "$dry_run" =~ ^[Yy]$ ]]; then
             dry_run_first=false
@@ -768,7 +805,7 @@ run_backups() {
         done
         
         echo -e "\n${YELLOW}Dry run complete. Review the output above.${NC}"
-        read -p "Proceed with actual backup? [y/N]: " proceed
+        read_input "Proceed with actual backup? [y/N]: " proceed
         
         if [[ ! "$proceed" =~ ^[Yy]$ ]]; then
             echo -e "${RED}Backup cancelled${NC}"
@@ -889,7 +926,7 @@ main() {
     # Check admin privileges and offer multi-user backup
     if check_admin_privileges; then
         echo -e "\n${YELLOW}Multi-user backup available${NC}"
-        read -p "Backup multiple users? [y/N]: " multi_user
+        read_input "Backup multiple users? [y/N]: " multi_user
         if [[ "$multi_user" =~ ^[Yy]$ ]]; then
             select_users_to_backup
         else
