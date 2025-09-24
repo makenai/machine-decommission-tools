@@ -231,7 +231,8 @@ swapfile.sys
 *\ProgramData\Microsoft\Windows\WER\**
 *\Windows\**
 *\Windows.old\**
-'@ | Out-File -FilePath $excludesFile -Encoding UTF8
+'@
+| Out-File -FilePath $excludesFile -Encoding UTF8
 
 Write-Host "✓ Created excludes file" -ForegroundColor Green
 
