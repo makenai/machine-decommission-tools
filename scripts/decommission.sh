@@ -46,11 +46,24 @@ fi
 
 # If in WSL, get Windows username
 if [[ "$IS_WSL" == true ]]; then
+    # Temporarily disable exit on error for Windows interop commands
+    set +e
     WINDOWS_USERNAME=$(powershell.exe -NoProfile -Command 'Write-Host -NoNewline $env:USERNAME' 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//')
+    set -e
+
     if [[ -n "$WINDOWS_USERNAME" ]]; then
         echo -e "${YELLOW}Windows User: ${WINDOWS_USERNAME}${NC}"
     else
-        echo -e "${YELLOW}Could not detect Windows username${NC}"
+        echo -e "${YELLOW}Could not detect Windows username (this is normal when running as root)${NC}"
+        # Try to guess from home directory or use a default
+        if [[ -d "/mnt/c/Users" ]]; then
+            # Get the most recently modified user directory as a guess
+            WINDOWS_USERNAME=$(ls -t /mnt/c/Users | grep -v -E '^(Public|Default|All Users|Default User)$' | head -1 || echo "")
+        fi
+        if [[ -z "$WINDOWS_USERNAME" ]]; then
+            WINDOWS_USERNAME="unknown"
+        fi
+        echo -e "${YELLOW}Using Windows User: ${WINDOWS_USERNAME}${NC}"
     fi
 fi
 
@@ -130,6 +143,8 @@ collect_machine_info() {
 
     if [[ "$IS_WSL" == true ]]; then
         # WSL/Windows specific collection
+        # Disable exit on error for Windows interop commands
+        set +e
         local serial=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_BIOS | Select-Object -ExpandProperty SerialNumber" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
         local model=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty Model" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
         local manufacturer=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty Manufacturer" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
@@ -161,6 +176,9 @@ collect_machine_info() {
         local total_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.Size/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
         local used_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round((\$disk.Size - \$disk.FreeSpace)/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
         local free_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.FreeSpace/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+
+        # Re-enable exit on error
+        set -e
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS specific collection
