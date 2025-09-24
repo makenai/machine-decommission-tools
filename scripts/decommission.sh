@@ -27,13 +27,40 @@ EXCLUDES_FILE=""
 IS_WSL=false
 WINDOWS_USERNAME=""
 
-# Detect if running in WSL
-if grep -qi microsoft /proc/version 2>/dev/null || grep -qi WSL /proc/version 2>/dev/null; then
+# Force WSL mode with environment variable
+if [[ "${FORCE_WSL:-}" == "true" ]]; then
     IS_WSL=true
-    # Get Windows username from WSL
+    echo -e "${YELLOW}WSL mode forced via FORCE_WSL=true${NC}"
+fi
+
+# Detect if running in WSL
+if [[ "$IS_WSL" != true ]]; then
+    if grep -qi microsoft /proc/version 2>/dev/null || \
+       grep -qi WSL /proc/version 2>/dev/null || \
+       [[ -n "${WSL_DISTRO_NAME:-}" ]] || \
+       [[ -n "${WSL_INTEROP:-}" ]]; then
+        IS_WSL=true
+        echo -e "${BLUE}Detected Windows Subsystem for Linux environment${NC}"
+    fi
+fi
+
+# If in WSL, get Windows username
+if [[ "$IS_WSL" == true ]]; then
     WINDOWS_USERNAME=$(powershell.exe -NoProfile -Command 'Write-Host -NoNewline $env:USERNAME' 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//')
-    echo -e "${BLUE}Detected Windows Subsystem for Linux environment${NC}"
-    echo -e "${YELLOW}Windows User: ${WINDOWS_USERNAME}${NC}"
+    if [[ -n "$WINDOWS_USERNAME" ]]; then
+        echo -e "${YELLOW}Windows User: ${WINDOWS_USERNAME}${NC}"
+    else
+        echo -e "${YELLOW}Could not detect Windows username${NC}"
+    fi
+fi
+
+# Debug mode - show detection info
+if [[ "${DEBUG:-}" == "true" ]]; then
+    echo -e "${BLUE}Debug Info:${NC}"
+    echo "  /proc/version: $(cat /proc/version 2>/dev/null | head -c 100)..."
+    echo "  WSL_DISTRO_NAME: ${WSL_DISTRO_NAME:-not set}"
+    echo "  WSL_INTEROP: ${WSL_INTEROP:-not set}"
+    echo "  IS_WSL: $IS_WSL"
 fi
 
 echo -e "${BLUE}=== Machine Decommission Tool ===${NC}"
