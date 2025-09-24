@@ -6,10 +6,10 @@ Comprehensive tool for safely decommissioning machines by capturing hardware inf
 
 ```bash
 # Run decommission process (captures machine info + backs up data)
-curl -sSL pawel.codes/decommission | bash
+curl -sSL https://raw.githubusercontent.com/makenai/machine-decommission-tools/main/scripts/decommission.sh | bash
 
 # For multi-user backup (admin/root required)
-sudo bash -c "$(curl -sSL pawel.codes/decommission)"
+sudo bash -c "$(curl -sSL https://raw.githubusercontent.com/makenai/machine-decommission-tools/main/scripts/decommission.sh)"
 ```
 
 ## Features
@@ -55,7 +55,7 @@ The backup script will prompt for:
 ### Multi-User Decommission
 Run as administrator to backup multiple users:
 ```bash
-sudo bash -c "$(curl -sSL pawel.codes/decommission)"
+sudo bash -c "$(curl -sSL https://raw.githubusercontent.com/makenai/machine-decommission-tools/main/scripts/decommission.sh)"
 ```
 
 ### Environment Variables
@@ -64,7 +64,7 @@ Skip prompts by setting:
 export B2_APPLICATION_KEY_ID="your-key-id"
 export B2_APPLICATION_KEY="your-key"
 export B2_BUCKET_NAME="your-bucket"
-curl -sSL pawel.codes/decommission | bash
+curl -sSL https://raw.githubusercontent.com/makenai/machine-decommission-tools/main/scripts/decommission.sh | bash
 ```
 
 ### Exclude Patterns
