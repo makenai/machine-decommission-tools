@@ -28,10 +28,10 @@ IS_WSL=false
 WINDOWS_USERNAME=""
 
 # Detect if running in WSL
-if grep -qi microsoft /proc/version 2>/dev/null; then
+if grep -qi microsoft /proc/version 2>/dev/null || grep -qi WSL /proc/version 2>/dev/null; then
     IS_WSL=true
     # Get Windows username from WSL
-    WINDOWS_USERNAME=$(powershell.exe -NoProfile -Command "Write-Host -NoNewline \$env:USERNAME" 2>/dev/null | tr -d '\r\n')
+    WINDOWS_USERNAME=$(powershell.exe -NoProfile -Command 'Write-Host -NoNewline $env:USERNAME' 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//')
     echo -e "${BLUE}Detected Windows Subsystem for Linux environment${NC}"
     echo -e "${YELLOW}Windows User: ${WINDOWS_USERNAME}${NC}"
 fi
@@ -103,21 +103,21 @@ collect_machine_info() {
 
     if [[ "$IS_WSL" == true ]]; then
         # WSL/Windows specific collection
-        local serial=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_BIOS | Select-Object -ExpandProperty SerialNumber" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local model=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystem | Select-Object -ExpandProperty Model" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local manufacturer=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystem | Select-Object -ExpandProperty Manufacturer" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local model_id=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystemProduct | Select-Object -ExpandProperty Version" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local cpu=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_Processor | Select-Object -ExpandProperty Name" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local cores=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_Processor | Select-Object -ExpandProperty NumberOfCores" 2>/dev/null | tr -d '\r\n' || echo "0")
-        local memory=$(powershell.exe -NoProfile -Command "\$mem = Get-WmiObject Win32_ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory; [math]::Round(\$mem/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local uuid=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local os_version=$(powershell.exe -NoProfile -Command "(Get-WmiObject Win32_OperatingSystem).Caption" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local build=$(powershell.exe -NoProfile -Command "(Get-WmiObject Win32_OperatingSystem).BuildNumber" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local boot_rom=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_BIOS | Select-Object -ExpandProperty SMBIOSBIOSVersion" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local serial=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_BIOS | Select-Object -ExpandProperty SerialNumber" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local model=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty Model" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local manufacturer=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty Manufacturer" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local model_id=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty Version" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local cpu=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local cores=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty NumberOfCores" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "0")
+        local memory=$(powershell.exe -NoProfile -Command "\$mem = Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory; [math]::Round(\$mem/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local uuid=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local os_version=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).Caption" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local build=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).BuildNumber" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
+        local boot_rom=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_BIOS | Select-Object -ExpandProperty SMBIOSBIOSVersion" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
         local os_type="Windows (via WSL)"
 
         # Additional Windows info
-        local boot_volume=$(powershell.exe -NoProfile -Command "(Get-WmiObject Win32_OperatingSystem).SystemDrive" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local boot_volume=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).SystemDrive" 2>/dev/null | tr -d '\r\n' | sed 's/[[:space:]]*$//' || echo "N/A")
         local file_vault=$(powershell.exe -NoProfile -Command "Get-BitLockerVolume -MountPoint C: 2>&1 | Select-Object -ExpandProperty ProtectionStatus" 2>/dev/null | tr -d '\r\n' || echo "Unknown")
         [[ "$file_vault" == "1" ]] && file_vault="Encrypted" || file_vault="Not Encrypted"
         local sip_status="N/A"
@@ -131,9 +131,9 @@ collect_machine_info() {
         local mac_list=$(IFS=,; echo "${macs[*]}")
 
         # Windows storage info
-        local total_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.Size/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local used_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round((\$disk.Size - \$disk.FreeSpace)/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
-        local free_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.FreeSpace/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local total_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.Size/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local used_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round((\$disk.Size - \$disk.FreeSpace)/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local free_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.FreeSpace/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
 
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS specific collection
