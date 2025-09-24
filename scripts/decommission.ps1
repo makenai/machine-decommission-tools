@@ -159,10 +159,9 @@ if ($buckets -notmatch $bucketName) {
     }
 }
 
-# Create backup subfolder
-$backupSubfolder = "$($env:COMPUTERNAME)-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+# No subfolder - backup directly to bucket root
 Write-Host ""
-Write-Host "Backing up to: $bucketName/$backupSubfolder" -ForegroundColor Cyan
+Write-Host "Backing up to: $bucketName (root)" -ForegroundColor Cyan
 
 # Create excludes file
 $excludesFile = "$env:TEMP\backup-excludes.txt"
@@ -246,7 +245,7 @@ $failedUsers = @()
 foreach ($userDir in $userDirs) {
     $username = $userDir.Name
     $userPath = $userDir.FullName
-    $destination = "${remoteName}:${bucketName}/${backupSubfolder}/${username}/"
+    $destination = "${remoteName}:${bucketName}/${username}/"
 
     Write-Host ""
     Write-Host "Backing up user: $username" -ForegroundColor Cyan
@@ -300,7 +299,7 @@ foreach ($userDir in $userDirs) {
 # Update machine info with backup status
 $machineInfo.backup_info = @{
     backup_performed = $true
-    backup_destination = "${remoteName}:${bucketName}/${backupSubfolder}/"
+    backup_destination = "${remoteName}:${bucketName}/"
     backup_timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
 }
 
@@ -309,7 +308,7 @@ $machineInfo | ConvertTo-Json -Depth 10 | Out-File -FilePath $machineInfoFile -E
 # Upload machine info to B2
 Write-Host ""
 Write-Host "Uploading machine info to B2..." -ForegroundColor Yellow
-rclone copy $machineInfoFile "${remoteName}:${bucketName}/${backupSubfolder}/" 2>$null
+rclone copy $machineInfoFile "${remoteName}:${bucketName}/" 2>$null
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✓ Machine info uploaded to B2" -ForegroundColor Green
 }
@@ -328,7 +327,6 @@ Write-Host "=== Decommission Process Complete ===" -ForegroundColor Cyan
 Write-Host "Machine Info: $machineInfoFile"
 Write-Host "Remote: $remoteName"
 Write-Host "Bucket: $bucketName"
-Write-Host "Subfolder: $backupSubfolder"
 Write-Host "Logs: $env:TEMP\backup-*.log"
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
