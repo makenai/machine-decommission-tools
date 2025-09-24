@@ -24,6 +24,17 @@ BACKUP_SUBFOLDER=""
 IS_ADMIN=false
 MACHINE_INFO_FILE=""
 EXCLUDES_FILE=""
+IS_WSL=false
+WINDOWS_USERNAME=""
+
+# Detect if running in WSL
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL=true
+    # Get Windows username from WSL
+    WINDOWS_USERNAME=$(powershell.exe -NoProfile -Command "Write-Host -NoNewline \$env:USERNAME" 2>/dev/null | tr -d '\r\n')
+    echo -e "${BLUE}Detected Windows Subsystem for Linux environment${NC}"
+    echo -e "${YELLOW}Windows User: ${WINDOWS_USERNAME}${NC}"
+fi
 
 echo -e "${BLUE}=== Machine Decommission Tool ===${NC}"
 echo -e "${YELLOW}This tool will capture machine info and backup user data before decommissioning${NC}\n"
@@ -89,8 +100,42 @@ collect_machine_info() {
     local timestamp_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     local current_user=$(whoami)
     local home_dir="$HOME"
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
+
+    if [[ "$IS_WSL" == true ]]; then
+        # WSL/Windows specific collection
+        local serial=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_BIOS | Select-Object -ExpandProperty SerialNumber" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local model=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystem | Select-Object -ExpandProperty Model" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local manufacturer=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystem | Select-Object -ExpandProperty Manufacturer" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local model_id=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystemProduct | Select-Object -ExpandProperty Version" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local cpu=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_Processor | Select-Object -ExpandProperty Name" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local cores=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_Processor | Select-Object -ExpandProperty NumberOfCores" 2>/dev/null | tr -d '\r\n' || echo "0")
+        local memory=$(powershell.exe -NoProfile -Command "\$mem = Get-WmiObject Win32_ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory; [math]::Round(\$mem/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local uuid=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local os_version=$(powershell.exe -NoProfile -Command "(Get-WmiObject Win32_OperatingSystem).Caption" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local build=$(powershell.exe -NoProfile -Command "(Get-WmiObject Win32_OperatingSystem).BuildNumber" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local boot_rom=$(powershell.exe -NoProfile -Command "Get-WmiObject Win32_BIOS | Select-Object -ExpandProperty SMBIOSBIOSVersion" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local os_type="Windows (via WSL)"
+
+        # Additional Windows info
+        local boot_volume=$(powershell.exe -NoProfile -Command "(Get-WmiObject Win32_OperatingSystem).SystemDrive" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local file_vault=$(powershell.exe -NoProfile -Command "Get-BitLockerVolume -MountPoint C: 2>&1 | Select-Object -ExpandProperty ProtectionStatus" 2>/dev/null | tr -d '\r\n' || echo "Unknown")
+        [[ "$file_vault" == "1" ]] && file_vault="Encrypted" || file_vault="Not Encrypted"
+        local sip_status="N/A"
+
+        # Get Windows MAC addresses
+        local macs=()
+        while IFS= read -r line; do
+            line=$(echo "$line" | tr -d '\r\n' | sed 's/[[:space:]]*$//')
+            [[ -n "$line" && "$line" != "N/A" ]] && macs+=("\"$line\"")
+        done < <(powershell.exe -NoProfile -Command "Get-NetAdapter | Where-Object {\$_.Status -eq 'Up'} | Select-Object -ExpandProperty MacAddress" 2>/dev/null || echo "N/A")
+        local mac_list=$(IFS=,; echo "${macs[*]}")
+
+        # Windows storage info
+        local total_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.Size/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local used_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round((\$disk.Size - \$disk.FreeSpace)/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+        local free_disk=$(powershell.exe -NoProfile -Command "\$disk = Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\"; [math]::Round(\$disk.FreeSpace/1GB, 2).ToString() + ' GB'" 2>/dev/null | tr -d '\r\n' || echo "N/A")
+
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS specific collection
         local serial=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Serial Number" | awk '{print $4}' || echo "N/A")
         local model=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Model Name" | cut -d: -f2 | xargs || echo "N/A")
@@ -227,11 +272,38 @@ EOF
     echo "  Users: ${#all_users[@]} total"
 }
 
+# Function to list Windows users (for WSL)
+list_windows_users() {
+    local users=()
+
+    # Get Windows user directories
+    local win_users_path="/mnt/c/Users"
+    if [[ -d "$win_users_path" ]]; then
+        for user_dir in "$win_users_path"/*; do
+            if [[ -d "$user_dir" ]]; then
+                local username=$(basename "$user_dir")
+                # Skip system directories
+                if [[ "$username" != "Public" && "$username" != "Default" && "$username" != "All Users" && "$username" != "Default User" ]]; then
+                    users+=("$username|$user_dir")
+                fi
+            fi
+        done
+    fi
+
+    printf '%s\n' "${users[@]}"
+}
+
 # Function to list system users
 list_system_users() {
     local users=()
     local min_uid=1000  # Typically regular users start at UID 1000
-    
+
+    # If in WSL, list Windows users instead
+    if [[ "$IS_WSL" == true ]]; then
+        list_windows_users
+        return
+    fi
+
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         min_uid=501
@@ -263,7 +335,11 @@ list_system_users() {
 select_users_to_backup() {
     local available_users=()
     
-    echo -e "\n${YELLOW}Detecting system users...${NC}"
+    if [[ "$IS_WSL" == true ]]; then
+        echo -e "\n${YELLOW}Detecting Windows users...${NC}"
+    else
+        echo -e "\n${YELLOW}Detecting system users...${NC}"
+    fi
     
     while IFS='|' read -r username home_dir; do
         if [[ -n "$username" ]]; then
@@ -286,7 +362,12 @@ select_users_to_backup() {
     
     echo -e "\n${YELLOW}Select users to backup:${NC}"
     echo "  a) All users"
-    echo "  c) Current user only ($(whoami))"
+    if [[ "$IS_WSL" == true ]]; then
+        echo "  c) Current Windows user only ($WINDOWS_USERNAME)"
+        echo "  w) WSL home directory ($(whoami))"
+    else
+        echo "  c) Current user only ($(whoami))"
+    fi
     echo "  s) Select specific users (comma-separated numbers)"
     
     read_input "Your choice [c]: " choice
@@ -310,11 +391,30 @@ select_users_to_backup() {
                 MULTI_USER_MODE=true
             fi
             ;;
+        w|W)
+            # WSL home directory only (when in WSL)
+            if [[ "$IS_WSL" == true ]]; then
+                local current_user="$(whoami)"
+                local current_home="$HOME"
+                SELECTED_USERS=("$current_user-wsl|$current_home")
+            fi
+            ;;
         *)
             # Current user only
-            local current_user="$(whoami)"
-            local current_home="$HOME"
-            SELECTED_USERS=("$current_user|$current_home")
+            if [[ "$IS_WSL" == true ]]; then
+                # Default to current Windows user
+                local win_user_dir="/mnt/c/Users/$WINDOWS_USERNAME"
+                if [[ -d "$win_user_dir" ]]; then
+                    SELECTED_USERS=("$WINDOWS_USERNAME|$win_user_dir")
+                else
+                    echo -e "${RED}Windows user directory not found: $win_user_dir${NC}"
+                    exit 1
+                fi
+            else
+                local current_user="$(whoami)"
+                local current_home="$HOME"
+                SELECTED_USERS=("$current_user|$current_home")
+            fi
             ;;
     esac
     
